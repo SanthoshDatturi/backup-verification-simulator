@@ -1,6 +1,7 @@
 import os
 import shutil
 import sqlite3
+import json
 
 from google import genai
 
@@ -127,3 +128,75 @@ def verify_backup(backup_path):
         "report": report,
         "issue_url": issue_url,
     }
+
+
+def run_ai_dynamic_validation(sandbox_db_path):
+    """Dynamically generates and executes SQL queries using Gemini."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key or api_key == "your_gemini_api_key_here":
+         return {"error": "API Key missing or invalid"}
+         
+    conn = None
+    try:
+        conn = sqlite3.connect(sandbox_db_path)
+        cursor = conn.cursor()
+        
+        # Extract schema
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table'")
+        schemas = [row[0] for row in cursor.fetchall() if row[0]]
+        schema_text = "\n".join(schemas)
+        
+        client = genai.Client(api_key=api_key)
+        prompt = f"""
+        You are a Database Administrator AI. Analyze the following SQLite schema:
+        {schema_text}
+        
+        Write exactly 2 SQL queries that check for data anomalies (e.g. negative amounts, orphaned records, or anything relevant).
+        Return ONLY valid JSON in this exact format, with no markdown formatting or backticks:
+        [
+          {{"description": "Check for negative amounts", "query": "SELECT * FROM transactions WHERE amount < 0"}}
+        ]
+        """
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        
+        # Parse JSON
+        raw_text = response.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        if raw_text.startswith("```"):
+            raw_text = raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+            
+        queries = json.loads(raw_text.strip())
+        
+        results = []
+        for q in queries:
+            try:
+                cursor.execute(q["query"])
+                rows = cursor.fetchall()
+                results.append({
+                    "description": q["description"], 
+                    "query": q["query"], 
+                    "rows_found": len(rows), 
+                    "passed": len(rows) == 0,
+                    "error": None
+                })
+            except Exception as e:
+                results.append({
+                    "description": q["description"], 
+                    "query": q["query"], 
+                    "rows_found": 0, 
+                    "passed": False,
+                    "error": str(e)
+                })
+                
+        return {"status": "SUCCESS", "results": results}
+    except Exception as e:
+        return {"status": "ERROR", "error": str(e)}
+    finally:
+        if conn:
+            conn.close()

@@ -1,4 +1,5 @@
 import datetime
+import glob
 import os
 import random
 import shutil
@@ -102,6 +103,29 @@ def corrupt_backup(backup_path):
         print(f"Error corrupting backup: {e}")
     finally:
         conn.close()
+
+
+def cleanup_old_backups(keep=7):
+    """Deletes old backups keeping only the most recent 'keep' files. Also deletes sandbox."""
+    backups = sorted(glob.glob(os.path.join(BACKUPS_DIR, "*.db")), key=os.path.getmtime, reverse=True)
+    
+    # Delete older backups
+    for old_backup in backups[keep:]:
+        try:
+            os.remove(old_backup)
+            print(f"Deleted old backup: {old_backup}")
+        except Exception as e:
+            print(f"Failed to delete {old_backup}: {e}")
+            
+    # Clean sandbox database
+    sandbox_db = "database/sandbox/sandbox_database.db"
+    if os.path.exists(sandbox_db):
+        try:
+            os.remove(sandbox_db)
+            print(f"Cleaned up sandbox database.")
+        except Exception as e:
+            pass
+
 
 
 if __name__ == "__main__":
