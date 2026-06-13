@@ -72,31 +72,41 @@ def create_backup():
     shutil.copy2(SOURCE_DB, backup_path)
     print(f"Created backup '{backup_filename}'.")
 
-    # 30% chance to corrupt the backup to simulate a failure
-    if random.random() < 0.3:
-        corrupt_backup(backup_path)
+    # 60% chance to corrupt the backup to simulate a failure
+    rand_val = random.random()
+    if rand_val < 0.6:
+        corrupt_backup(backup_path, rand_val)
 
 
-def corrupt_backup(backup_path):
+def corrupt_backup(backup_path, rand_val=None):
     """Simulates a backup failure by deleting data or tables."""
     conn = sqlite3.connect(backup_path)
     cursor = conn.cursor()
 
-    corruption_type = random.choice(["delete_rows", "drop_table", "empty_table"])
+    if rand_val is None:
+        rand_val = random.random()
 
     try:
-        if corruption_type == "delete_rows":
-            # Delete half the transactions
-            cursor.execute("DELETE FROM transactions WHERE id % 2 = 0")
-            print(
-                f"CORRUPTION: Deleted half the rows from transactions in '{backup_path}'."
-            )
-        elif corruption_type == "drop_table":
+        if rand_val < 0.15:
+            # Drop a table
             cursor.execute("DROP TABLE users")
             print(f"CORRUPTION: Dropped the 'users' table in '{backup_path}'.")
-        elif corruption_type == "empty_table":
+        elif rand_val < 0.30:
+            # Empty a table
             cursor.execute("DELETE FROM transactions")
             print(f"CORRUPTION: Emptied the 'transactions' table in '{backup_path}'.")
+        elif rand_val < 0.45:
+            # Delete rows
+            cursor.execute("DELETE FROM transactions WHERE id % 2 = 0")
+            print(f"CORRUPTION: Deleted half the rows from transactions in '{backup_path}'.")
+        elif rand_val < 0.55:
+            # Nullify data / Negative data
+            cursor.execute("UPDATE transactions SET amount = -500 WHERE id % 3 = 0")
+            print(f"CORRUPTION: Set negative transaction amounts in '{backup_path}'.")
+        else:
+            # Duplicate rows
+            cursor.execute("INSERT INTO users (username, email) SELECT username, email FROM users LIMIT 10")
+            print(f"CORRUPTION: Duplicated 10 users in '{backup_path}'.")
 
         conn.commit()
     except Exception as e:

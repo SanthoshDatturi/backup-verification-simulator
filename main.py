@@ -14,6 +14,12 @@ st.set_page_config(
     page_title="Backup Verification Simulator", layout="wide"
 )
 
+# Initialize Session State
+if "standard_results" not in st.session_state:
+    st.session_state.standard_results = None
+if "ai_results" not in st.session_state:
+    st.session_state.ai_results = None
+
 st.title("Backup Verification Simulator")
 st.markdown("Automated nightly backup verification using Gemini and GitHub Issues.")
 st.markdown("---")
@@ -74,8 +80,18 @@ else:
 
     if verify_clicked:
         with st.spinner("Restoring, validating, and generating report..."):
-            results = verify_backup(selected_backup)
+            st.session_state.standard_results = verify_backup(selected_backup)
+            st.session_state.ai_results = None
 
+    if ai_clicked:
+        with st.spinner("Restoring backup and querying AI for SQL anomaly tests..."):
+            restore_backup(selected_backup)
+            st.session_state.ai_results = run_ai_dynamic_validation(SANDBOX_DB)
+            st.session_state.standard_results = None
+
+    # Render Results
+    if st.session_state.standard_results:
+        results = st.session_state.standard_results
         st.subheader("Verification Results")
 
         # Status badge
@@ -102,9 +118,9 @@ else:
 
         # Generate and provide PDF download
         pdf_content = f"Status: {results['status']}\n\n"
-        pdf_content += f"Details:\n{results['details']}\n\n"
+        pdf_content += f"Details:\n" + "\n".join([f"[+] {d}" for d in results["details"]]) + "\n\n"
         if results["errors"]:
-            pdf_content += f"Errors:\n{results['errors']}\n\n"
+            pdf_content += f"Errors:\n" + "\n".join([f"[-] {e}" for e in results["errors"]]) + "\n\n"
         pdf_content += f"AI Narrative Report:\n{results['report']}"
         
         pdf_bytes = generate_pdf(f"Verification Report: {os.path.basename(selected_backup)}", pdf_content)
@@ -115,11 +131,8 @@ else:
             mime="application/pdf"
         )
 
-    if ai_clicked:
-        with st.spinner("Restoring backup and querying AI for SQL anomaly tests..."):
-            restore_backup(selected_backup)
-            ai_results = run_ai_dynamic_validation(SANDBOX_DB)
-            
+    elif st.session_state.ai_results:
+        ai_results = st.session_state.ai_results
         st.subheader("AI Dynamic Validation Results")
         if ai_results.get("status") == "ERROR" or "error" in ai_results:
             st.error(f"Error: {ai_results.get('error')}")
@@ -138,13 +151,31 @@ else:
                             else:
                                 st.error(f"Failed: Found {res.get('rows_found')} anomalous rows!")
                         st.markdown("---")
+            
+            st.subheader("AI Narrative Report")
+            ai_report = ai_results.get("report", "No report generated.")
+            st.info(ai_report)
 
             issue_url = ai_results.get("issue_url")
             if isinstance(issue_url, str):
                 st.warning(f"GitHub Issue Filed for Anomalies: [View Issue]({issue_url})")
                 
-            ai_report = ai_results.get("report", "No report generated.")
-            pdf_bytes = generate_pdf(f"AI Dynamic Validation: {os.path.basename(selected_backup)}", str(ai_report))
+            pdf_content = "AI Dynamic Validation Report\n\n"
+            if isinstance(validation_results, list):
+                for res in validation_results:
+                    if isinstance(res, dict):
+                        pdf_content += f"Test: {res.get('description')}\n"
+                        pdf_content += f"Query:\n{res.get('query', '')}\n"
+                        if res.get('passed'):
+                            pdf_content += "Status: PASS\n"
+                        else:
+                            pdf_content += f"Status: FAIL (Found {res.get('rows_found')} rows)\n"
+                            if res.get('error'):
+                                pdf_content += f"Error: {res.get('error')}\n"
+                        pdf_content += "\n"
+            pdf_content += f"AI Narrative Report:\n{ai_report}"
+
+            pdf_bytes = generate_pdf(f"AI Dynamic Validation: {os.path.basename(selected_backup)}", pdf_content)
             st.download_button(
                 label="Download AI Validation PDF",
                 data=pdf_bytes,

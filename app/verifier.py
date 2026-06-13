@@ -4,10 +4,19 @@ import sqlite3
 import json
 
 from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
 
 from .github_integration import file_github_issue
 
 SANDBOX_DB = "database/sandbox/sandbox_database.db"
+
+class ValidationQuery(BaseModel):
+    description: str = Field(description="Description of the anomaly check")
+    query: str = Field(description="The exact SQL query string to execute")
+
+class ValidationQueries(BaseModel):
+    queries: list[ValidationQuery] = Field(description="List of comprehensive validation queries to run against the database")
 
 
 def restore_backup(backup_path):
@@ -151,49 +160,65 @@ def run_ai_dynamic_validation(sandbox_db_path):
         You are a Database Administrator AI. Analyze the following SQLite schema:
         {schema_text}
         
-        Write exactly 2 SQL queries that check for data anomalies (e.g. negative amounts, orphaned records, or anything relevant).
-        Return ONLY valid JSON in this exact format, with no markdown formatting or backticks:
-        [
-          {{"description": "Check for negative amounts", "query": "SELECT * FROM transactions WHERE amount < 0"}}
-        ]
+        Write as many SQL queries as necessary to comprehensively check for data anomalies based on this schema.
+        (e.g., negative amounts, orphaned records, duplicate rows, missing relationships, empty tables).
         """
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ValidationQueries,
+                temperature=0.2,
+            ),
         )
         
-        # Parse JSON
-        raw_text = response.text.strip()
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:]
-        if raw_text.startswith("```"):
-            raw_text = raw_text[3:]
-        if raw_text.endswith("```"):
-            raw_text = raw_text[:-3]
+        query_data = response.parsed
+        if not query_data or not hasattr(query_data, "queries"):
+            return {"status": "ERROR", "error": "AI failed to return valid queries."}
             
-        queries = json.loads(raw_text.strip())
+        queries = query_data.queries
         
         results = []
         for q in queries:
             try:
-                cursor.execute(q["query"])
+                cursor.execute(q.query)
                 rows = cursor.fetchall()
                 results.append({
-                    "description": q["description"], 
-                    "query": q["query"], 
+                    "description": q.description, 
+                    "query": q.query, 
                     "rows_found": len(rows), 
                     "passed": len(rows) == 0,
                     "error": None
                 })
             except Exception as e:
                 results.append({
-                    "description": q["description"], 
-                    "query": q["query"], 
+                    "description": q.description, 
+                    "query": q.query, 
                     "rows_found": 0, 
                     "passed": False,
                     "error": str(e)
                 })
                 
+                
+        # Second pass: Narrative report
+        report_prompt = f"""
+        You are an expert database administrator AI. You just ran anomaly tests against a restored database backup.
+        Here are the exact queries executed and their results:
+        {json.dumps(results, indent=2)}
+        
+        Write a brief, professional narrative report explaining whether the backup is healthy based on these specific query results.
+        Highlight specific anomalies found and which tests failed. Do not include heavy markdown headers.
+        """
+        try:
+            report_response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=report_prompt,
+            )
+            report_text = report_response.text
+        except Exception as e:
+            report_text = f"Failed to generate narrative report: {e}"
+
         failed = False
         report_lines = []
         for res in results:
@@ -207,7 +232,7 @@ def run_ai_dynamic_validation(sandbox_db_path):
             report_body = "AI Dynamic Validation discovered anomalies:\n\n" + "\n".join(report_lines)
             issue_url = file_github_issue(issue_title, report_body)
             
-        return {"status": "SUCCESS", "results": results, "issue_url": issue_url, "report": "\n".join(report_lines)}
+        return {"status": "SUCCESS", "results": results, "issue_url": issue_url, "report": report_text, "raw_lines": report_lines}
     except Exception as e:
         return {"status": "ERROR", "error": str(e)}
     finally:
