@@ -47,7 +47,7 @@ The **Backup Verification Simulator** provides an automated system to verify SQL
 
 1. Run the Streamlit application:
    ```bash
-   streamlit run app.py
+   streamlit run app/main.py
    ```
 2. Open your browser and navigate to the local URL provided by Streamlit.
 3. Use the sidebar to **Generate New Backup**. Some backups will randomly be corrupted to demonstrate the failure process.
