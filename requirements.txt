@@ -3,3 +3,4 @@ google-genai
 PyGithub
 python-dotenv
 pandas
+fpdf2

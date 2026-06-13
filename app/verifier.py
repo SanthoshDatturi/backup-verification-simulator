@@ -194,7 +194,20 @@ def run_ai_dynamic_validation(sandbox_db_path):
                     "error": str(e)
                 })
                 
-        return {"status": "SUCCESS", "results": results}
+        failed = False
+        report_lines = []
+        for res in results:
+            if not res["passed"] or res.get("error"):
+                failed = True
+            report_lines.append(f"Test: {res['description']}\nQuery: {res['query']}\nPassed: {res['passed']}\nRows Found: {res['rows_found']}\nError: {res.get('error')}\n")
+            
+        issue_url = None
+        if failed:
+            issue_title = f"AI Validation Failed: Data Anomalies Detected"
+            report_body = "AI Dynamic Validation discovered anomalies:\n\n" + "\n".join(report_lines)
+            issue_url = file_github_issue(issue_title, report_body)
+            
+        return {"status": "SUCCESS", "results": results, "issue_url": issue_url, "report": "\n".join(report_lines)}
     except Exception as e:
         return {"status": "ERROR", "error": str(e)}
     finally:
