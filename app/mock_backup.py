@@ -4,7 +4,7 @@ import shutil
 import random
 import datetime
 
-SOURCE_DB = "source_database.db"
+SOURCE_DB = "main.db"
 BACKUPS_DIR = "backups"
 
 def init_source_db():

@@ -4,10 +4,11 @@ import shutil
 from google import genai
 from github_integration import file_github_issue
 
-SANDBOX_DB = "sandbox_database.db"
+SANDBOX_DB = "sandbox/sandbox_database.db"
 
 def restore_backup(backup_path):
     """Restores a backup to a sandbox environment."""
+    os.makedirs(os.path.dirname(SANDBOX_DB), exist_ok=True)
     if os.path.exists(SANDBOX_DB):
         os.remove(SANDBOX_DB)
     shutil.copy2(backup_path, SANDBOX_DB)
