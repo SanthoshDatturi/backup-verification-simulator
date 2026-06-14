@@ -35,7 +35,7 @@ The application is built around a **Streamlit** dashboard that acts as the user 
 
 1. Clone the repository:
    ```bash
-   git clone [YOUR_REPO_LINK]
+   git clone https://github.com/SanthoshDatturi/backup-verification-simulator.git
    cd backup-verification-simulator
    ```
 2. Create and activate a virtual environment:
